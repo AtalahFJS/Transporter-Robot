@@ -1,32 +1,36 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <XboxSeriesXControllerESP32_asukiaaa.hpp>
-#include <ESP32Servo.h>
 
 XboxSeriesXControllerESP32_asukiaaa::Core xboxController("40:8e:2c:4b:e7:0f");
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-Servo gripper;
 
+//motor A depan kanan
 #define pwm_a 32
 #define pin_a1 33
 #define pin_a2 25
 
+//motor B depan kiri
 #define pwm_b 14
 #define pin_b1 26
 #define pin_b2 27
 
+//motor C belakang kiri
 #define pwm_c 17
 #define pin_c1 16
 #define pin_c2 4
 
+//motor D belakang kanan
 #define pwm_d 15
 #define pin_d1 0
 #define pin_d2 2
 
+//motor lifter
 #define pwm_e 19
 #define pin_e1 18
 #define pin_e2 5
 
+//servo gripper
 #define servoPin 23
 
 #define SDA 21
@@ -84,6 +88,12 @@ void loop() {
     bool btnA = xboxController.xboxNotif.btnA;
     bool btnUp = xboxController.xboxNotif.btnDirUp;
     bool btnDown = xboxController.xboxNotif.btnDirDown;
+    int btnRight = xboxController.xboxNotif.btnDirRight;
+    int btnLeft = xboxController.xboxNotif.btnDirLeft;
+    
+    Serial.println(btnLeft);
+    Serial.println(btnRight);
+
 
     float normLX = (float)joyLX / 32768.0f;
     float normLY = -(float)joyLY / 32768.0f;
@@ -92,7 +102,9 @@ void loop() {
     if (abs(normLX) < 0.05) normLX = 0;
     if (abs(normLY) < 0.05) normLY = 0;
     if (abs(normRX) < 0.07) normRX = 0;
-    int pwmValue = basePWM + map(trigR, 0, 1023, 0, 100);
+    int trigVal = map(trigR, 0, 1023, 0, 100);
+    int trigVal2 = map(trigR, 0, 1023, 0, 255);
+    int pwmValue = basePWM + trigVal;
     pwmValue = constrain(pwmValue, 0, maxPWM);
     if (normRX != 0) {
       mecanumRotate(normRX, pwmValue);
@@ -110,6 +122,7 @@ void loop() {
     lastBtnA = btnA;
 
     actiongripper();
+    gerakbutton(btnLeft,btnRight,trigVal2);
     }
 }
 
@@ -131,19 +144,13 @@ void setMotor(int pwmPin, int in1, int in2, int speed) {
 }
 
 void mecanumDrive(float x, float y, float rotation, int pwmBase) {
-  float theta = atan2(y, x);
-  float power = sqrt(x * x + y * y);
-  power = constrain(power, 0.0, 1.0);
+  // Hitung kecepatan relatif tiap roda
+  float vFL = ( y + x + rotation );
+  float vFR = ( y - x - rotation );
+  float vRL = ( y - x + rotation );
+  float vRR = ( y + x - rotation );
 
-  float sinTheta = sin(theta - PI / 4);
-  float cosTheta = cos(theta - PI / 4);
-  float maxVal = max(abs(sinTheta), abs(cosTheta));
-
-  float vFL = power * cosTheta / maxVal + rotation;
-  float vFR = power * sinTheta / maxVal - rotation;
-  float vRL = power * sinTheta / maxVal + rotation;
-  float vRR = power * cosTheta / maxVal - rotation;
-
+  // Normalisasi agar nilai tidak melebihi 1.0
   float maxWheel = max(max(abs(vFL), abs(vFR)), max(abs(vRL), abs(vRR)));
   if (maxWheel > 1.0) {
     vFL /= maxWheel;
@@ -151,22 +158,23 @@ void mecanumDrive(float x, float y, float rotation, int pwmBase) {
     vRL /= maxWheel;
     vRR /= maxWheel;
   }
+
+  // Konversi ke PWM dan kirim ke motor
   setMotor(pwm_a, pin_a1, pin_a2, vFL * pwmBase);
   setMotor(pwm_b, pin_b1, pin_b2, vFR * pwmBase);
   setMotor(pwm_c, pin_c1, pin_c2, vRL * pwmBase);
   setMotor(pwm_d, pin_d1, pin_d2, vRR * pwmBase);
 }
-
 // just an experiment
 void mecanumRotate(float rx, int pwmBase) {
 
-  if (rx > 0 && !rx <0) {
+  if (rx > 0) {
     setMotor(pwm_a, pin_a1, pin_a2, rx * pwmBase);
     setMotor(pwm_b, pin_b1, pin_b2, rx * pwmBase);
     // setMotor(pwm_c, pin_c1, pin_c2, 0);
     // setMotor(pwm_d, pin_d1, pin_d2, 0);
   } 
-  else if (rx < 0 && rx > 0) {
+  else if (rx < 0) {
     // setMotor(pwm_a, pin_a1, pin_a2, 0);
     // setMotor(pwm_b, pin_b1, pin_b2, 0);
     setMotor(pwm_c, pin_c1, pin_c2, -rx * pwmBase);
@@ -216,5 +224,60 @@ void actiongripper() {
   } else {
     ledcWrite(servoPin, dutyMax);
     delay(100);
+  }
+}
+
+void gerakbutton(int buttonLeft, int buttonRight, int boost){
+  if(buttonLeft == 1){
+    //motor A
+    digitalWrite(pin_a1, LOW);
+    digitalWrite(pin_a2, HIGH);
+    analogWrite(pwm_a, boost);
+    //moktor B
+    digitalWrite(pin_b1, HIGH);
+    digitalWrite(pin_b2, LOW);
+    analogWrite(pwm_b, boost);
+    //motor C
+    digitalWrite(pin_c1, HIGH);
+    digitalWrite(pin_c2, LOW);
+    analogWrite(pwm_c, boost);
+    //motor D
+    digitalWrite(pin_d1, LOW);
+    digitalWrite(pin_d2, HIGH);
+    analogWrite(pwm_d, boost);
+  } else if(buttonRight == 1){
+    //motor A
+    digitalWrite(pin_a1, HIGH);
+    digitalWrite(pin_a2, LOW);
+    analogWrite(pwm_a, boost);
+    //moktor B
+    digitalWrite(pin_b1, LOW);
+    digitalWrite(pin_b2, HIGH);
+    analogWrite(pwm_b, boost);
+    //motor C
+    digitalWrite(pin_c1, LOW);
+    digitalWrite(pin_c2, HIGH);
+    analogWrite(pwm_c, boost);
+    //motor D
+    digitalWrite(pin_d1, HIGH);
+    digitalWrite(pin_d2, LOW);
+    analogWrite(pwm_d, boost);
+  } else {
+    digitalWrite(pin_a1, LOW);
+    digitalWrite(pin_a2, LOW);
+    //analogWrite(pwm_a, 200);
+    //moktor B
+    digitalWrite(pin_b1, LOW);
+    digitalWrite(pin_b2, LOW);
+    //analogWrite(pwm_b, 200);
+    //motor C
+    digitalWrite(pin_c1, LOW);
+    digitalWrite(pin_c2, LOW);
+    //analogWrite(pwm_c, 200);
+    //motor D
+    digitalWrite(pin_d1, LOW);
+    
+    digitalWrite(pin_d2, LOW);
+    //analogWrite(pwm_d, 200);
   }
 }
